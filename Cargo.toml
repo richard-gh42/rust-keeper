@@ -1,0 +1,10 @@
+[package]
+name = "rust-keeper"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ciborium = "0.2.2"
+eframe = { version = "0.33.0", features = ["wayland"] }
+egui = "0.33.0"
+serde = { version = "1.0.228", features = ["derive"] }
