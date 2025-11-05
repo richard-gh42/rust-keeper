@@ -15,6 +15,7 @@ pub(crate) struct KeeperGUI {
     state: ProgrammState,
     recv: Receiver<Vec<data::Character>>,
     send: Sender<UserInput>,
+    mode_selesction: SelectMode,
 }
 
 impl KeeperGUI {
@@ -30,17 +31,17 @@ impl KeeperGUI {
             state: ProgrammState::Launch,
             recv: recv,
             send: send,
+            mode_selesction: SelectMode::Client,
         }
     }
 
     /// Handles the GUI at game app launch
     fn launch(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         CentralPanel::default().show(ctx, |ui| {
-            let mut selection = SelectMode::Client;
-            ui.radio_value(&mut selection, SelectMode::Client, "CLient");
-            ui.radio_value(&mut selection, SelectMode::Host, "Host");
+            ui.radio_value(&mut self.mode_selesction, SelectMode::Client, "CLient");
+            ui.radio_value(&mut self.mode_selesction, SelectMode::Host, "Host");
             if ui.button("Continue").clicked() {
-                match selection {
+                match self.mode_selesction {
                     SelectMode::Client => {
                         self.state = ProgrammState::Client;
                         let _ = self.send.send(UserInput::Select(ProgrammState::Client));
