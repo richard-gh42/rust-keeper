@@ -3,18 +3,15 @@ use std::{
     thread::spawn,
 };
 
-use egui::style::Selection;
-
 use crate::gui::ProgrammState;
 
 mod client;
-mod coms;
 mod data;
 mod gui;
 mod host;
 
 fn main() {
-    let (sendm, recvg) = channel::<Vec<data::Player>>();
+    let (sendm, recvg) = channel::<Vec<data::Character>>();
     let (sendg, recvm) = channel::<gui::UserInput>();
     let native_options = eframe::NativeOptions::default();
 
@@ -29,7 +26,7 @@ fn main() {
     let _ = main_tread_handle.join();
 }
 
-fn run(gui_send: Sender<Vec<data::Player>>, gui_recv: Receiver<gui::UserInput>) {
+fn run(gui_send: Sender<Vec<data::Character>>, gui_recv: Receiver<gui::UserInput>) {
     match gui_recv.recv().unwrap() {
         gui::UserInput::Select(selection) => match selection {
             ProgrammState::Client => {

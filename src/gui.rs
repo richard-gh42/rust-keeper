@@ -11,9 +11,9 @@ use crate::data;
 
 /// This is the struckt implememnting the GUI
 pub(crate) struct KeeperGUI {
-    players: Vec<data::Player>,
+    players: Vec<data::Character>,
     state: ProgrammState,
-    recv: Receiver<Vec<data::Player>>,
+    recv: Receiver<Vec<data::Character>>,
     send: Sender<UserInput>,
 }
 
@@ -21,7 +21,7 @@ impl KeeperGUI {
     /// Creates new instance
     pub(crate) fn new(
         cc: &eframe::CreationContext<'_>,
-        recv: Receiver<Vec<data::Player>>,
+        recv: Receiver<Vec<data::Character>>,
         send: Sender<UserInput>,
     ) -> Self {
         cc.egui_ctx.set_visuals(Visuals::dark());
@@ -84,6 +84,7 @@ pub(crate) enum ProgrammState {
 pub(crate) enum UserInput {
     Select(ProgrammState),
     Connect(SocketAddr),
+    SetPasswd(String),
     Quit,
 }
 

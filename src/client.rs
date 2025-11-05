@@ -6,6 +6,6 @@ use std::{
 use eframe::App;
 use egui::Visuals;
 
-use crate::{coms::Player, data, gui::UserInput};
+use crate::{data::Character, gui::UserInput};
 
-pub(crate) fn main(mut gui_send: Sender<Vec<data::Player>>, mut gui_recv: Receiver<UserInput>) {}
+pub(crate) fn main(mut gui_send: Sender<Vec<Character>>, mut gui_recv: Receiver<UserInput>) {}

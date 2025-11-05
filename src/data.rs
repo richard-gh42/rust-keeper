@@ -2,24 +2,39 @@ use std::collections::VecDeque;
 
 use serde::{Deserialize, Serialize};
 
-use crate::coms;
+#[derive(Serialize, Deserialize)]
+pub(crate) enum Signal {
+    Update(ComCharacter),
+    SetName(String),
+    NameResponse(bool),
+    AskPasswd,
+    Passwd(String),
+    Ok,
+    Err,
+}
 
 #[derive(Serialize, Deserialize)]
-pub(crate) struct Player {
+pub(crate) struct ComCharacter {
+    pub(crate) name: String,
+    pub(crate) stats: VecDeque<Stat>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) struct Character {
     pub(crate) name: String,
     pub(crate) pub_stats: VecDeque<Stat>,
     pub(crate) pri_stats: VecDeque<Stat>,
 }
 
-impl Player {
-    fn to_coms(&self) -> coms::Player {
-        coms::Player {
+impl Character {
+    fn to_coms(&self) -> ComCharacter {
+        ComCharacter {
             name: self.name.to_owned(),
             stats: self.pub_stats.clone(),
         }
     }
 
-    fn from_coms(player: coms::Player) -> Self {
+    fn from_coms(player: ComCharacter) -> Self {
         Self {
             name: player.name,
             pub_stats: player.stats,
