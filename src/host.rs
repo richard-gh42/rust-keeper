@@ -1,24 +1,82 @@
 use std::{
+    collections::HashMap,
     net::{TcpListener, TcpStream},
-    sync::mpsc::{Receiver, Sender, channel},
+    sync::mpsc::{Receiver, Sender, TryRecvError, channel},
     thread::{JoinHandle, spawn},
 };
 
 use ciborium::{from_reader, into_writer};
 
 use crate::{
-    coms::{self, Signal},
-    data,
+    data::{Character, ComCharacter, Signal},
     gui::UserInput,
 };
 
-pub(crate) fn main(gui_send: Sender<Vec<data::Player>>, gui_recv: Receiver<UserInput>) {
+pub(crate) fn main(gui_send: Sender<Vec<Character>>, gui_recv: Receiver<UserInput>) {
+    let passwd = "moin".to_string();
     let (connection_send, connection_recv) = channel::<(JoinHandle<()>, ConComMain)>();
-    let listener_handle = spawn(move || listen(connection_send));
+    let listener_handle = spawn(move || listen(connection_send, passwd));
+
+    let mut new_connections: Vec<(JoinHandle<()>, ConComMain)> = Vec::with_capacity(4);
+    let mut active_connections: HashMap<String, (JoinHandle<()>, ConComMain)> = HashMap::new();
+
+    loop {
+        // add new connections from listener
+        match connection_recv.try_recv() {
+            Ok(con) => {
+                new_connections.push(con);
+            }
+            Err(_) => {}
+        }
+        // Get name for new connenctions and add them to active connections
+        for i in 0..new_connections.len() {
+            match new_connections.get(i).unwrap().1.recv.try_recv() {
+                Ok(sig) => match sig {
+                    ConSigFromClient::SelectName(name) => {
+                        if active_connections.contains_key(&name) {
+                            // if the name already exists refuse
+                            match new_connections
+                                .get(i)
+                                .unwrap()
+                                .1
+                                .send
+                                .send(ConSigToClient::AwnserChar(false))
+                            {
+                                Err(_) => {
+                                    // Remove if thresd has closed
+                                    new_connections.remove(i);
+                                }
+                                _ => {}
+                            }
+                        } else {
+                            // If the name doesn't exist add connection to active connections and
+                            match new_connections
+                                .get(i)
+                                .unwrap()
+                                .1
+                                .send
+                                .send(ConSigToClient::AwnserChar(true))
+                            {
+                                Err(_) => {
+                                    // Remove if thresd has closed
+                                    new_connections.remove(i);
+                                }
+                                Ok(_) => {
+                                    active_connections.insert(name, new_connections.remove(i));
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                },
+                Err(_) => todo!(),
+            }
+        }
+    }
 }
 
 /// Listens for incoming connections
-fn listen(send: Sender<(JoinHandle<()>, ConComMain)>) {
+fn listen(send: Sender<(JoinHandle<()>, ConComMain)>, passwd: String) {
     // Binds to a OS assinged port
     let listener = TcpListener::bind("0.0.0.0:0").expect("Failed to bind to port");
     println!("Listens on {}", listener.local_addr().unwrap());
@@ -26,12 +84,13 @@ fn listen(send: Sender<(JoinHandle<()>, ConComMain)>) {
     for res in listener.incoming() {
         match res {
             Ok(stream) => {
-                println!(
-                    "Successfuly established connection to {}",
-                    &stream.peer_addr().unwrap()
-                );
+                // Chanel from the handler to the central thread
                 let (sendh, recvm) = channel::<ConSigFromClient>();
+                // Chanel from the central thread to the handler
                 let (sendm, recvh) = channel::<ConSigToClient>();
+                // for password checking
+                let passwd = passwd.clone();
+                //spawn thread and send it and the chanel handles to the cantral thread.
                 send.send((
                     spawn(move || {
                         handler(
@@ -40,6 +99,7 @@ fn listen(send: Sender<(JoinHandle<()>, ConComMain)>) {
                                 send: sendh,
                                 recv: recvh,
                             },
+                            passwd,
                         )
                     }),
                     ConComMain {
@@ -55,38 +115,143 @@ fn listen(send: Sender<(JoinHandle<()>, ConComMain)>) {
 }
 
 /// Handles a connection
-fn handler(mut stream: TcpStream, main_com: ConComHand) {
+fn handler(mut stream: TcpStream, main_com: ConComHand, passwd: String) {
     // Save peer adress
     let peer = stream.peer_addr().unwrap();
-    // coms::Player Selection
-    let mut player_selected = false;
-    // Repeat until player is selected
-    while !player_selected {
-        // Look for AskPlayer Signal
-        match from_reader::<Signal, &mut TcpStream>(&mut stream).expect("Invalid package recieved")
-        {
-            Signal::AskPlayer(character) => {
-                // Ask main if the player exists
-                let _ = main_com.send.send(ConSigFromClient::Select(character));
-                match main_com.recv.recv().unwrap() {
-                    // Tell client whether player exists
-                    ConSigToClient::AwnserChar(availible) => {
-                        if availible {
-                            into_writer(&Signal::CharAvalible, &mut stream);
-                            player_selected = true;
-                        } else {
-                            into_writer(&Signal::CharNotAvalible, &mut stream);
+    println!("Incomming connection from {}", peer.ip());
+    // Ask for Password if one exists
+    if passwd.len() > 0 {
+        // send request for password to client
+        into_writer(&Signal::AskPasswd, &mut stream).unwrap_or_else(|_| {
+            println!("Connection to {} lost", peer.ip());
+            return;
+        });
+        // handle response
+        match from_reader::<Signal, TcpStream>(
+            stream.try_clone().expect("Failed cloning stream refrence"),
+        ) {
+            Ok(sig) => match sig {
+                Signal::Passwd(passwd_attempt) => {
+                    // Only continue if password is correct
+                    if passwd == passwd_attempt {
+                        match into_writer(&Signal::Ok, &mut stream) {
+                            Err(_) => {
+                                println!("Connection to {} lost", peer.ip());
+                                return;
+                            }
+                            _ => {}
+                        };
+                    } else {
+                        // If the password is false, relay that and close the connection
+                        match into_writer(&Signal::Err, &mut stream) {
+                            Err(_) => {
+                                println!("Connection to {} lost", peer.ip());
+                                return;
+                            }
+                            _ => {}
+                        };
+                        println!(
+                            "Incomming connection from {} refused due to wrong password",
+                            peer.ip()
+                        );
+                        return;
+                    }
+                }
+                _ => {
+                    // if client doesn't respond with a password, close connection
+                    match into_writer(&Signal::Err, &mut stream) {
+                        Err(_) => {
+                            println!("Connection to {} lost", peer.ip());
+                            return;
                         }
+                        _ => {}
+                    };
+                    println!(
+                        "Incoming connection from {} refused due to signal missmatch",
+                        peer.ip()
+                    );
+                    return;
+                }
+            },
+            Err(_) => {
+                // if no adequate response is forthcomming close the connection
+                match into_writer(&Signal::Err, &mut stream) {
+                    Err(_) => {
+                        println!("Connection to {} lost", peer.ip());
+                        return;
                     }
                     _ => {}
-                }
-            }
-            _ => {
-                // Tell client their Signal was Faulty
-                into_writer(&Signal::FaultySignal, &mut stream);
+                };
+                println!(
+                    "Incoming connection from {} refused due to connection error",
+                    peer.ip()
+                );
+                return;
             }
         }
     }
+
+    // Set client Name
+    loop {
+        // get Name from client
+        match from_reader::<Signal, TcpStream>(
+            stream.try_clone().expect("Execeded file descriptor limit"),
+        ) {
+            Ok(sig) => match sig {
+                Signal::SetName(name) => {
+                    // Request central thread to set name for client
+                    main_com
+                        .send
+                        .send(ConSigFromClient::SelectName(name))
+                        .unwrap();
+                    match main_com.recv.recv().unwrap() {
+                        ConSigToClient::AwnserChar(allowed) => {
+                            // If name is set Send afirmation to client and continue to
+                            if allowed {
+                                into_writer(&Signal::NameResponse(true), &mut stream)
+                                    .unwrap_or_else(|_| {
+                                        println!("Connection to {} lost", peer.ip());
+                                        return;
+                                    });
+                                break;
+                            } else {
+                                println!("{} requested existing name", peer.ip());
+                                match into_writer(&Signal::NameResponse(false), &mut stream) {
+                                    Err(_) => {
+                                        println!("Connection to {} lost", peer.ip());
+                                        return;
+                                    }
+                                    _ => {}
+                                };
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                _ => {
+                    println!("Received unexpected Signal from {}", peer.ip());
+                    match into_writer(&Signal::Err, &mut stream) {
+                        Err(_) => {
+                            println!("Connection to {} lost", peer.ip());
+                            return;
+                        }
+                        _ => {}
+                    };
+                }
+            },
+            Err(_) => {
+                println!("Recieved faulty Signal from {}", peer.ip());
+                match into_writer(&Signal::Err, &mut stream) {
+                    Err(_) => {
+                        println!("Connection to {} lost", peer.ip());
+                        return;
+                    }
+                    _ => {}
+                };
+            }
+        }
+    }
+
     loop {
         // Check for Signal from Main
         match main_com.recv.try_recv() {
@@ -94,13 +259,16 @@ fn handler(mut stream: TcpStream, main_com: ConComHand) {
                 // Handle Signal
                 match sig {
                     ConSigToClient::SendCharData(character) => {
-                        match into_writer(&character, &mut stream) {
-                            Ok(_) => {}
+                        match into_writer(&Signal::Update(character), &mut stream) {
                             Err(_) => {
                                 println!("Connection to {} lost", peer);
                                 break;
                             }
+                            _ => {}
                         }
+                    }
+                    ConSigToClient::Close => {
+                        break;
                     }
                     _ => {}
                 }
@@ -127,13 +295,14 @@ enum ConSigToClient {
     // Awnser to char selection
     AwnserChar(bool),
     // Send data to client
-    SendCharData(coms::Player),
+    SendCharData(ComCharacter),
+    Close,
 }
 
 /// Signals from the main thread to the connection handlers
 enum ConSigFromClient {
-    // select char
-    Select(String),
+    // select name
+    SelectName(String),
     // Connection closed
     Closed,
 }
