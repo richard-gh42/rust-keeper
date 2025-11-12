@@ -19,6 +19,15 @@ pub(crate) struct ComCharacter {
     pub(crate) stats: VecDeque<Stat>,
 }
 
+impl From<&Character> for ComCharacter {
+    fn from(value: &Character) -> Self {
+        Self {
+            name: value.name.to_owned(),
+            stats: value.pub_stats.to_owned(),
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub(crate) struct Character {
     pub(crate) name: String,
@@ -26,18 +35,11 @@ pub(crate) struct Character {
     pub(crate) pri_stats: VecDeque<Stat>,
 }
 
-impl Character {
-    fn to_coms(&self) -> ComCharacter {
-        ComCharacter {
-            name: self.name.to_owned(),
-            stats: self.pub_stats.clone(),
-        }
-    }
-
-    fn from_coms(player: ComCharacter) -> Self {
+impl From<&ComCharacter> for Character {
+    fn from(value: &ComCharacter) -> Self {
         Self {
-            name: player.name,
-            pub_stats: player.stats,
+            name: value.name.to_owned(),
+            pub_stats: value.stats.to_owned(),
             pri_stats: VecDeque::new(),
         }
     }
